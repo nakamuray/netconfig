@@ -1,0 +1,43 @@
+# start
+../netconfig -n basic.conf
+>>>
+/sbin/ip link set eth0 up
+/sbin/ip addr add 192.168.0.1/255.255.255.0 broadcast 192.168.0.255 dev eth0
+/sbin/ip route add default via 192.168.0.1
+/sbin/brctl addbr br0
+/sbin/brctl addif br0 eth1
+/sbin/brctl addif br0 eth2
+>>>2
+>>>= 0
+
+# stop
+../netconfig -n -m stop basic.conf
+>>>
+/sbin/brctl delif br0 eth2
+/sbin/brctl delif br0 eth1
+/sbin/brctl delbr br0
+/sbin/ip route del default via 192.168.0.1
+/sbin/ip addr del 192.168.0.1/255.255.255.0 broadcast 192.168.0.255 dev eth0
+/sbin/ip link set eth0 down
+>>>2
+>>>= 0
+
+# same config, but read from command line argument
+../netconfig -n -c 'define interface eth0; address 192.168.0.1; netmask 255.255.255.0; broadcast 192.168.0.255; end; define route default; via 192.168.0.1; end; define bridge br0; ports eth1 eth2; end;'
+>>>
+/sbin/ip link set eth0 up
+/sbin/ip addr add 192.168.0.1/255.255.255.0 broadcast 192.168.0.255 dev eth0
+/sbin/ip route add default via 192.168.0.1
+/sbin/brctl addbr br0
+/sbin/brctl addif br0 eth1
+/sbin/brctl addif br0 eth2
+>>>2
+>>>= 0
+
+# same config, but only for specific interface
+../netconfig -n -t eth0 basic.conf
+>>>
+/sbin/ip link set eth0 up
+/sbin/ip addr add 192.168.0.1/255.255.255.0 broadcast 192.168.0.255 dev eth0
+>>>2
+>>>= 0

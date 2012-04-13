@@ -1,0 +1,23 @@
+# do nothing if config file is empty
+../netconfig -n empty.conf
+>>>
+>>>2
+>>>= 0
+# should raise error on unknown option
+../netconfig -n -x
+>>>
+>>>2
+netconfig: illegal option -- x
+>>>=1
+# should raise error if no CONFIG STRING given
+../netconfig -n -c
+>>>
+>>>2
+netconfig: option requires an argument -- c
+>>>=1
+# should raise error on unknown mode
+../netconfig -n -m unknown empty.conf
+>>>
+>>>2
+netconfig: unknown mode: unknown
+>>>=1

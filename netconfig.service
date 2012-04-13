@@ -1,0 +1,13 @@
+[Unit]
+Description=Network configuration
+Wants=network.target
+Before=network.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/netconfig -m start
+ExecStop=/usr/local/sbin/netconfig -m stop
+
+[Install]
+WantedBy=multi-user.target

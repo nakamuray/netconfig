@@ -1,0 +1,317 @@
+#!/bin/bash
+# netconfig -- distribution independent network configuration script
+
+DEFAULT_CONFIG_FILE="${DEFAULT_CONFIG_FILE:-/etc/netconfig.conf}"
+
+ip=/sbin/ip
+brctl=/sbin/brctl
+
+_MODE="start"
+_DRY_RUN=false
+_TARGETS=()
+
+_COMMAND_QUEUE=( )
+
+_DEFINE_COMMAND=""
+_DEFINE_TARGET=""
+
+_VERBOSE=false
+
+_BASENAME="${0##*/}"
+
+help() {
+  echo "usage: ${_BASENAME} [options] [CONFIG_FILE...]"
+  echo "options:"
+  echo "    -h                  display this help"
+  echo "    -n                  dry-run"
+  echo "    -v                  verbose error output"
+  echo "    -m <start|stop>     set mode (default: start)"
+  echo "    -t TARGET           only apply config for specific TARGET"
+  echo "    -c 'CONFIG STRING'  use 'CONFIG STRING' instead of reading CONFIG_FILE"
+}
+
+error() {
+  echo "${_BASENAME}:" "$@" >&2
+
+  if $_VERBOSE; then
+    for (( i=1; i<${#FUNCNAME[@]}; i++ )); do
+      echo "${BASH_SOURCE[$i]}:${BASH_LINENO[$(( i - 1 ))]}:${FUNCNAME[$i]}" >&2
+    done
+  fi
+
+  return 1
+}
+
+is_start() {
+  [[ "${_MODE}" == "start" ]]
+}
+
+is_target() {
+  if [[ ${#_TARGETS[@]} == 0 ]]; then
+    return 0
+  fi
+
+  local t
+  for t in "${_TARGETS[@]}"; do
+    if [[ "${t}" == "$1" ]]; then
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+push_cmd_q() {
+  _COMMAND_QUEUE+=( "$*" )
+}
+
+unshit_cmd_q() {
+  _COMMAND_QUEUE=( "$*" "${_COMMAND_QUEUE[@]}" )
+}
+
+run_cmd_q() {
+  local cmd
+  for cmd in "${_COMMAND_QUEUE[@]}"; do
+    if "${_DRY_RUN}"; then
+      echo "${cmd}"
+    else
+      eval "${cmd}"
+    fi
+  done
+}
+
+define() {
+  if (( $# < 2 )); then
+    error "too few arguments"
+  fi
+
+  _DEFINE_COMMAND="$1"
+  _DEFINE_TARGET="$2"
+
+  "${_DEFINE_COMMAND}_define"
+}
+
+end() {
+  if is_target "${_DEFINE_TARGET}"; then
+    "${_DEFINE_COMMAND}_end"
+  fi
+
+  _DEFINE_COMMAND=""
+  _DEFINE_TARGET=""
+
+  # TODO: delete all functions created at "${_DEFINE_COMMAND}"_define
+}
+
+
+# ---------
+# interface
+# ---------
+
+interface_define() {
+  _INTERFACE_LINK="up"
+
+  _INTERFACE_ADDRESS=""
+  _INTERFACE_NETMASK="32"
+  _INTERFACE_BROADCAST=""
+
+
+  # subcommands
+  up() {
+    _INTERFACE_LINK="up"
+  }
+  
+  down() {
+    _INTERFACE_LINK="down"
+  }
+  
+  address() {
+    _INTERFACE_ADDRESS="$*"
+  }
+  
+  netmask() {
+    _INTERFACE_NETMASK="$*"
+  }
+  
+  broadcast() {
+    _INTERFACE_BROADCAST="$*"
+  }
+}
+
+interface_end() {
+  if is_start; then
+    local q=push_cmd_q
+    local interface_link="${_INTERFACE_LINK}"
+    local interface_ip="add"
+  else
+    local q=unshit_cmd_q
+    local interface_link="down"
+    local interface_ip="del"
+  fi
+
+
+  $q $ip link set ${_DEFINE_TARGET} ${interface_link}
+
+  if [[ -n "${_INTERFACE_ADDRESS}" ]]; then
+    local -a myopts=( "${_INTERFACE_ADDRESS}/${_INTERFACE_NETMASK}" )
+    [[ -n "${_INTERFACE_BROADCAST}" ]] && myopts+=( broadcast "${_INTERFACE_BROADCAST}" )
+
+    $q $ip addr ${interface_ip} ${myopts[*]} dev ${_DEFINE_TARGET}
+  fi
+}
+
+
+# -----
+# route
+# -----
+
+route_define() {
+  _ROUTE_VIA=""
+
+  # subcommands
+  via() {
+    _ROUTE_VIA="$*"
+  }
+}
+
+route_end() {
+  local myargs=( )
+  if [[ -n "${_ROUTE_VIA}" ]]; then
+    myargs+=( via "${_ROUTE_VIA}" )
+  fi
+
+  if is_start; then
+    push_cmd_q $ip route add ${_DEFINE_TARGET} ${myargs[*]}
+  else
+    unshit_cmd_q $ip route del ${_DEFINE_TARGET} ${myargs[*]}
+  fi
+}
+
+
+# ------
+# bridge
+# ------
+
+bridge_define() {
+  _BRIDGE_PORTS=( )
+  _BRIDGE_STP=""
+
+  # subcommands
+  ports() {
+    _BRIDGE_PORTS+=( "$@" )
+  }
+
+  stp() {
+    _BRIDGE_STP="$1"
+  }
+}
+
+bridge_end() {
+  local myargs=( )
+
+  if is_start; then
+    push_cmd_q $brctl addbr ${_DEFINE_TARGET}
+
+    local p
+    for p in "${_BRIDGE_PORTS[@]}"; do
+      push_cmd_q $brctl addif ${_DEFINE_TARGET} ${p}
+    done
+
+    if [[ -n "${_BRIDGE_STP}" ]]; then
+      push_cmd_q $brctl stp ${_DEFINE_TARGET} ${_BRIDGE_STP}
+    fi
+  else
+    unshit_cmd_q $brctl delbr ${_DEFINE_TARGET}
+
+    local p
+    for p in "${_BRIDGE_PORTS[@]}"; do
+      unshit_cmd_q $brctl delif ${_DEFINE_TARGET} ${p}
+    done
+  fi
+}
+
+
+# ---------------
+# TODO: implement
+# ---------------
+
+bonding_define() {
+  error "not yet implemented"
+  return 1
+}
+
+
+
+# ----
+# main
+# ----
+
+main() {
+  local config_string
+
+  local opt
+  while getopts :hnvm:t:c: opt; do
+    case "${opt}" in
+      h)
+        help
+        return
+        ;;
+      n)
+        _DRY_RUN=true
+        ;;
+      v)
+        _VERBOSE=true
+        ;;
+      m)
+        case "${OPTARG}" in
+          start|stop)
+            _MODE="${OPTARG}"
+            ;;
+          *)
+            error "unknown mode: ${OPTARG}"
+            return 1
+            ;;
+        esac
+        ;;
+      t)
+        _TARGETS+=( "${OPTARG}" )
+        ;;
+      c)
+        config_string="${OPTARG}"
+        ;;
+      "?")
+        error "illegal option -- ${OPTARG}"
+        return 1
+        ;;
+      :)
+        error "option requires an argument -- ${OPTARG}"
+        return 1
+        ;;
+    esac
+  done
+
+  shift $(( OPTIND - 1 ))
+
+  if [[ -n "${config_string}" ]]; then
+    eval "${config_string}"
+  else
+    local config_files
+    if (( $# > 0 )); then
+      config_files=( "$@" )
+    else
+      config_files=( "${DEFAULT_CONFIG_FILE}" )
+    fi
+
+    local config
+    for config in "${config_files[@]}"; do
+      source "${config}"
+    done
+  fi
+
+  run_cmd_q
+}
+
+if [[ "${0##*/}" != "bash" && ${#BASH_SOURCE[@]} == 1 ]]; then
+  set -e
+
+  main "$@"
+fi
