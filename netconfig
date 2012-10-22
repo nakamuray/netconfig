@@ -77,7 +77,7 @@ push_cmd_q() {
   _COMMAND_QUEUE+=( "$*" )
 }
 
-unshit_cmd_q() {
+unshift_cmd_q() {
   _COMMAND_QUEUE=( "$*" "${_COMMAND_QUEUE[@]}" )
 }
 
@@ -155,7 +155,7 @@ interface_end() {
     local interface_link="${_INTERFACE_LINK}"
     local interface_ip="add"
   else
-    local q=unshit_cmd_q
+    local q=unshift_cmd_q
     local interface_link="down"
     local interface_ip="del"
   fi
@@ -198,7 +198,7 @@ route_end() {
   if is_start; then
     push_cmd_q $ip route add ${_DEFINE_TARGET} ${myargs[*]}
   else
-    unshit_cmd_q $ip route del ${_DEFINE_TARGET} ${myargs[*]}
+    unshift_cmd_q $ip route del ${_DEFINE_TARGET} ${myargs[*]}
   fi
 }
 
@@ -236,11 +236,11 @@ bridge_end() {
       push_cmd_q $brctl stp ${_DEFINE_TARGET} ${_BRIDGE_STP}
     fi
   else
-    unshit_cmd_q $brctl delbr ${_DEFINE_TARGET}
+    unshift_cmd_q $brctl delbr ${_DEFINE_TARGET}
 
     local p
     for p in "${_BRIDGE_PORTS[@]}"; do
-      unshit_cmd_q $brctl delif ${_DEFINE_TARGET} ${p}
+      unshift_cmd_q $brctl delif ${_DEFINE_TARGET} ${p}
     done
   fi
 }
