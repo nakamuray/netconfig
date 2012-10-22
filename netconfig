@@ -61,6 +61,18 @@ is_target() {
   return 1
 }
 
+waitdev() {
+  # wait until target device come up
+  for _ in {1..10}; do
+    if $ip link show $1 >/dev/null 2>&1; then
+      break
+    else
+      echo "waiting $1 ..."
+      sleep 1
+    fi
+  done
+}
+
 push_cmd_q() {
   _COMMAND_QUEUE+=( "$*" )
 }
@@ -148,6 +160,10 @@ interface_end() {
     local interface_ip="del"
   fi
 
+
+  if is_start; then
+    $q waitdev ${_DEFINE_TARGET}
+  fi
 
   $q $ip link set ${_DEFINE_TARGET} ${interface_link}
 
