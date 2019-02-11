@@ -251,11 +251,109 @@ bridge_end() {
 # ---------------
 
 bonding_define() {
-  error "not yet implemented"
-  return 1
+  _BOND_SLAVES=()
+  _BOND_MODE=''
+  _BOND_XMIT_HASH_POLICY=''
+  _BOND_LINK="up"
+  _BOND_ADDRESS=""
+  _BOND_NETMASK="32"
+  _BOND_BROADCAST=""
+
+  # subcommands
+  slaves() {
+    _BOND_SLAVES+=( "$@" )
+  }
+  
+  mode() {
+    _BOND_MODE="$*"
+  }
+  
+  xmit_hash_policy() {
+    _BOND_XMIT_HASH_POLICY="$*"
+  }
+
+  up() {
+    _BOND_LINK="up"
+  }
+  
+  down() {
+    _BOND_LINK="down"
+  }
+  
+  address() {
+    _BOND_ADDRESS="$*"
+  }
+  
+  netmask() {
+    _BOND_NETMASK="$*"
+  }
+  
+  broadcast() {
+    _BOND_BROADCAST="$*"
+  }
 }
 
+bonding_end() {
+  local myargs=( )
 
+  if is_start; then
+    bonding_start
+ 
+  else
+    bonding_stop
+  fi
+}
+
+bonding_up() {
+    push_cmd_q $ip link set up dev ${_DEFINE_TARGET}
+}
+
+bonding_down() {
+    push_cmd_q $ip link set down dev ${_DEFINE_TARGET}
+}
+
+bonding_reload() {
+    bonding_down
+    bonding_up
+}
+
+bonding_restart() {
+    bonding_stop
+    bonding_start
+}
+
+bonding_start() {
+        # Hard set bond
+    if [[ $_BOND_MODE == '802.3ad' ]]; then
+        if [[ $_BOND_XMIT_HASH_POLICY == '' ]]; then
+            error "Bond mode set to $_BOND_MODE but xmit_hash_policy is not set"
+        fi
+        push_cmd_q $ip link add ${_DEFINE_TARGET} type bond mode $_BOND_MODE xmit_hash_policy $_BOND_XMIT_HASH_POLICY
+    else
+        push_cmd_q $ip link add ${_DEFINE_TARGET} type bond mode $_BOND_MODE
+    fi
+
+    local p
+    for p in "${_BOND_SLAVES[@]}"; do
+      push_cmd_q $ip link set ${p} master ${_DEFINE_TARGET}
+    done
+    
+    push_cmd_q waitdev ${_DEFINE_TARGET}
+
+    push_cmd_q $ip link set ${_DEFINE_TARGET} ${_BOND_LINK}
+
+    if [[ -n "${_BOND_ADDRESS}" ]]; then
+        local -a myopts=( "${_BOND_ADDRESS}/${_BOND_NETMASK}" )
+        [[ -n "${_BOND_BROADCAST}" ]] && myopts+=( broadcast "${_BOND_BROADCAST}" )
+
+        push_cmd_q $ip addr add ${myopts[*]} dev ${_DEFINE_TARGET}
+        bonding_up
+    fi
+}
+
+bonding_stop() {
+    unshift_cmd_q $ip link del ${_DEFINE_TARGET}
+}
 
 # ----
 # main
@@ -323,7 +421,7 @@ main() {
     done
   fi
 
-  run_cmd_q
+   run_cmd_q
 }
 
 if [[ "${0##*/}" != "bash" && ${#BASH_SOURCE[@]} == 1 ]]; then
@@ -331,3 +429,4 @@ if [[ "${0##*/}" != "bash" && ${#BASH_SOURCE[@]} == 1 ]]; then
 
   main "$@"
 fi
+
